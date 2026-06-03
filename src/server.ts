@@ -63,7 +63,7 @@ export class McpProxyServer {
       parseInt(process.env.MCP_PROXY_DASHBOARD_PORT || "9100", 10),
     );
 
-    this.setupTools();
+    this.registerToolsOn(this.server);
   }
 
   static fromEnvironment(): McpProxyServer {
@@ -138,8 +138,8 @@ export class McpProxyServer {
     return new McpProxyServer(config);
   }
 
-  private setupTools(): void {
-    this.server.registerTool(
+  private registerToolsOn(server: McpServer): void {
+    server.registerTool(
       "mcp_search",
       {
         title: "Search MCP Tools",
@@ -153,7 +153,7 @@ export class McpProxyServer {
       async (params) => this.handleSearch(params as SearchParams),
     );
 
-    this.server.registerTool(
+    server.registerTool(
       "mcp_call",
       {
         title: "Call MCP Tool",
@@ -176,7 +176,7 @@ export class McpProxyServer {
       async (params) => this.handleCall(params as CallParams),
     );
 
-    this.server.registerTool(
+    server.registerTool(
       "mcp_schema",
       {
         title: "Get Tool Schema",
@@ -600,7 +600,9 @@ export class McpProxyServer {
               }
             };
 
-            await this.server.connect(transport);
+            const sessionServer = new McpServer({ name: "mcp-proxy-gateway", version: "1.0.0" });
+            this.registerToolsOn(sessionServer);
+            await sessionServer.connect(transport);
           }
 
           if (transport) {
