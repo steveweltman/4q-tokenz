@@ -28,6 +28,16 @@ export class ToolRegistry {
     return this.tools.size;
   }
 
+  forProviders(allowed: Set<string>): ToolRegistry {
+    const view = new ToolRegistry();
+    for (const entry of this.tools.values()) {
+      if (allowed.has(entry.provider)) {
+        view.register(entry);
+      }
+    }
+    return view;
+  }
+
   async ingestUpstreamTool(
     provider: string,
     toolName: string,

@@ -23,8 +23,15 @@ export const UpstreamServerConfigSchema = z.object({
 
 export type UpstreamServerConfig = z.infer<typeof UpstreamServerConfigSchema>;
 
+export const AgentConfigSchema = z.object({
+  allow: z.array(z.string()).min(1),
+});
+
+export type AgentConfig = z.infer<typeof AgentConfigSchema>;
+
 export const ProxyConfigSchema = z.object({
   upstreams: z.array(UpstreamServerConfigSchema).min(1),
+  agents: z.record(AgentConfigSchema).optional(),
   searchLimit: z.number().min(1).max(20).default(5),
   callItemLimit: z.number().min(1).max(100).default(20),
   maxTextLength: z.number().min(50).max(5000).default(500),

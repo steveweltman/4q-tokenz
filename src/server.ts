@@ -15,6 +15,7 @@ import { ToolRegistry } from "./registry.js";
 import { HybridSearch } from "./search.js";
 import { SessionMemory } from "./session-memory.js";
 import {
+  AgentConfigSchema,
   type CallParams,
   CallParamsSchema,
   type McpToolResult,
@@ -39,6 +40,7 @@ export class McpProxyServer {
   private readonly dashboard: Dashboard;
   private readonly config: ProxyConfig;
   private upstreamsReady: Promise<void> = Promise.resolve();
+  private agentViews = new Map<string, { registry: ToolRegistry; search: HybridSearch }>();
   private httpServer: HttpServer | null = null;
   private httpTransports = new Map<string, StreamableHTTPServerTransport>();
 
@@ -68,6 +70,7 @@ export class McpProxyServer {
 
   static fromEnvironment(): McpProxyServer {
     let upstreamsRaw = process.env.MCP_PROXY_UPSTREAMS;
+    let agentsRaw = process.env.MCP_PROXY_AGENTS;
     let configSource = "environment";
 
     if (!upstreamsRaw) {
@@ -80,6 +83,9 @@ export class McpProxyServer {
             upstreamsRaw = JSON.stringify(fileConfig.upstreams);
             configSource = `file:${configPath}`;
             console.error(`[proxy] Loaded upstreams from ${configPath}`);
+          }
+          if (fileConfig.agents && !agentsRaw) {
+            agentsRaw = JSON.stringify(fileConfig.agents);
           }
         } catch (error) {
           console.error(
@@ -114,8 +120,27 @@ export class McpProxyServer {
       );
     }
 
+    let agents: Record<string, { allow: string[] }> | undefined;
+    if (agentsRaw) {
+      try {
+        const parsed = JSON.parse(agentsRaw) as Record<string, unknown>;
+        agents = Object.fromEntries(
+          Object.entries(parsed).map(([k, v]) => [
+            k,
+            AgentConfigSchema.parse(Array.isArray(v) ? { allow: v } : v),
+          ])
+        );
+      } catch (error) {
+        throw new ProxyError(
+          `Invalid agents config: ${error instanceof Error ? error.message : error}`,
+          "INVALID_CONFIG",
+        );
+      }
+    }
+
     const config = ProxyConfigSchema.parse({
       upstreams,
+      agents,
       searchLimit: parseInt(process.env.MCP_PROXY_SEARCH_LIMIT || "3", 10),
       callItemLimit: parseInt(
         process.env.MCP_PROXY_CALL_ITEM_LIMIT || "20",
@@ -138,7 +163,11 @@ export class McpProxyServer {
     return new McpProxyServer(config);
   }
 
-  private registerToolsOn(server: McpServer): void {
+  private registerToolsOn(
+    server: McpServer,
+    registry: ToolRegistry = this.registry,
+    search: HybridSearch = this.search,
+  ): void {
     server.registerTool(
       "mcp_search",
       {
@@ -150,7 +179,7 @@ export class McpProxyServer {
           limit: SearchParamsSchema.shape.limit,
         },
       },
-      async (params) => this.handleSearch(params as SearchParams),
+      async (params) => this.handleSearch(params as SearchParams, search),
     );
 
     server.registerTool(
@@ -173,7 +202,7 @@ export class McpProxyServer {
           detail: CallParamsSchema.shape.detail,
         },
       },
-      async (params) => this.handleCall(params as CallParams),
+      async (params) => this.handleCall(params as CallParams, registry),
     );
 
     server.registerTool(
@@ -186,13 +215,29 @@ export class McpProxyServer {
           ref: SchemaParamsSchema.shape.ref,
         },
       },
-      async (params) => this.handleSchema(params as { ref: string }),
+      async (params) => this.handleSchema(params as { ref: string }, registry),
     );
   }
 
-  private async handleSchema(params: { ref: string }): Promise<McpToolResult> {
+  private buildAgentViews(): void {
+    if (!this.config.agents) return;
+    for (const [agentId, agentConfig] of Object.entries(this.config.agents)) {
+      const allowed = new Set(agentConfig.allow);
+      const filteredRegistry = this.registry.forProviders(allowed);
+      const filteredSearch = new HybridSearch(filteredRegistry, this.sessionMemory);
+      this.agentViews.set(agentId, { registry: filteredRegistry, search: filteredSearch });
+      console.error(
+        `[proxy] Agent lane [${agentId}]: ${filteredRegistry.size} tools (${agentConfig.allow.join(', ')})`
+      );
+    }
+  }
+
+  private async handleSchema(
+    params: { ref: string },
+    registry: ToolRegistry = this.registry,
+  ): Promise<McpToolResult> {
     await this.upstreamsReady;
-    const entry = this.registry.get(params.ref);
+    const entry = registry.get(params.ref);
     if (!entry) {
       return {
         content: [
@@ -250,7 +295,10 @@ export class McpProxyServer {
     return { content: [{ type: "text", text: lines.join("\n") }] };
   }
 
-  private async handleSearch(params: SearchParams): Promise<McpToolResult> {
+  private async handleSearch(
+    params: SearchParams,
+    search: HybridSearch = this.search,
+  ): Promise<McpToolResult> {
     await this.upstreamsReady;
     const audit = this.logger.createEntry({
       tool: "mcp_search",
@@ -260,7 +308,7 @@ export class McpProxyServer {
 
     try {
       const limit = params.limit || this.config.searchLimit;
-      const results = this.search.search(params.query, limit);
+      const results = search.search(params.query, limit);
 
       const output = results
         .map(
@@ -283,13 +331,16 @@ export class McpProxyServer {
     }
   }
 
-  private async handleCall(params: CallParams): Promise<McpToolResult> {
+  private async handleCall(
+    params: CallParams,
+    registry: ToolRegistry = this.registry,
+  ): Promise<McpToolResult> {
     await this.upstreamsReady;
     if (params.page_cursor) {
       return this.handlePaginatedCall(params);
     }
 
-    const entry = this.registry.get(params.ref);
+    const entry = registry.get(params.ref);
     if (!entry) {
       return {
         content: [
@@ -487,6 +538,7 @@ export class McpProxyServer {
         try {
           await this.connector.discoverAll(this.config.upstreams);
           this.connector.startIdleReaper(this.config.idleTimeoutMs);
+          this.buildAgentViews();
           console.error(
             `[proxy] Registry loaded: ${this.registry.size} tools from ${this.connector.discoveredProviders.length} providers (all idle)`,
           );
@@ -497,6 +549,11 @@ export class McpProxyServer {
           console.error(
             "[proxy] Exposing 3 tools: mcp_search, mcp_schema, mcp_call",
           );
+          if (this.agentViews.size === 0) {
+            console.error("[proxy] Agent isolation: DISABLED (open pool — all agents share all tools)");
+          } else {
+            console.error(`[proxy] Agent isolation: ENABLED (${this.agentViews.size} lanes)`);
+          }
         } catch (error) {
           console.error(
             "[proxy] Failed to discover upstreams:",
@@ -535,6 +592,7 @@ export class McpProxyServer {
         try {
           await this.connector.discoverAll(this.config.upstreams);
           this.connector.startIdleReaper(this.config.idleTimeoutMs);
+          this.buildAgentViews();
           console.error(
             `[proxy] Registry loaded: ${this.registry.size} tools from ${this.connector.discoveredProviders.length} providers (all idle)`,
           );
@@ -545,6 +603,11 @@ export class McpProxyServer {
           console.error(
             "[proxy] Exposing 3 tools: mcp_search, mcp_schema, mcp_call",
           );
+          if (this.agentViews.size === 0) {
+            console.error("[proxy] Agent isolation: DISABLED (open pool — all agents share all tools)");
+          } else {
+            console.error(`[proxy] Agent isolation: ENABLED (${this.agentViews.size} lanes)`);
+          }
         } catch (error) {
           console.error(
             "[proxy] Failed to discover upstreams:",
@@ -574,23 +637,42 @@ export class McpProxyServer {
     this.httpServer = createServer(async (req, res) => {
       try {
         const url = new URL(req.url || "/", `http://127.0.0.1:${port}`);
-        if (url.pathname !== "/mcp") {
+        const parts = url.pathname.split("/").filter(Boolean);
+
+        if (parts[0] !== "mcp" || parts.length > 2) {
           res.writeHead(404);
           res.end("Not found");
           return;
         }
 
+        const agentId = parts[1] ?? null;
         const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
         if (req.method === "POST" || req.method === "GET" || req.method === "DELETE") {
           let transport = sessionId ? this.httpTransports.get(sessionId) : undefined;
 
           if (!transport && req.method === "POST") {
+            await this.upstreamsReady;
+
+            if (agentId !== null) {
+              if (!this.agentViews.has(agentId)) {
+                const known = [...this.agentViews.keys()].join(", ") || "none configured";
+                res.writeHead(404, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ error: `Unknown agent: ${agentId}. Known agents: ${known}` }));
+                return;
+              }
+            }
+
+            const view = agentId ? this.agentViews.get(agentId) : null;
+            const registry = view?.registry ?? this.registry;
+            const search = view?.search ?? this.search;
+
             transport = new StreamableHTTPServerTransport({
               sessionIdGenerator: () => randomUUID(),
               onsessioninitialized: (id) => {
                 this.httpTransports.set(id, transport!);
-                console.error(`[proxy] HTTP session created: ${id.slice(0, 8)}...`);
+                const lane = agentId ? `[${agentId}]` : "[open]";
+                console.error(`[proxy] HTTP session created: ${id.slice(0, 8)}... ${lane}`);
               },
             });
 
@@ -601,7 +683,7 @@ export class McpProxyServer {
             };
 
             const sessionServer = new McpServer({ name: "mcp-proxy-gateway", version: "1.0.0" });
-            this.registerToolsOn(sessionServer);
+            this.registerToolsOn(sessionServer, registry, search);
             await sessionServer.connect(transport);
           }
 
