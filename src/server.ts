@@ -191,7 +191,7 @@ export class McpProxyServer {
           "",
           "IMPORTANT — Output shaping behavior:",
           "• By default (detail=false), the proxy STRIPS metadata fields (id, url, created_at, updated_at, etc.), TRUNCATES text fields to 500 chars, and LIMITS arrays to 5 items. This saves tokens but may hide important data.",
-          "• When detail=true, ALL fields are preserved (nothing is stripped), text fields are truncated at 1500 chars, and arrays are returned in full. Use this when you need complete data — e.g. thread messages, full API responses, or when default output seems incomplete.",
+          "• When detail=true, ALL fields are preserved (nothing is stripped), text is returned in full (no per-field truncation — only the overall token budget applies), and arrays are returned in full. Use this when reading documents, long messages, or when default output seems incomplete.",
           "",
           "Rule of thumb: if the default call returns fewer items or less data than expected, retry with detail=true.",
         ].join("\n"),

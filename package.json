@@ -1,7 +1,7 @@
 {
   "name": "4q-tokenz",
   "mcpName": "io.github.steveweltman/4q-tokenz",
-  "version": "1.20.0",
+  "version": "1.21.0",
   "description": "MCP Proxy Gateway - Intelligent proxy that reduces token usage by exposing only mcp_search, mcp_call, and mcp_schema",
   "main": "dist/index.js",
   "type": "module",

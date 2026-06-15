@@ -90,7 +90,7 @@ export const CallParamsSchema = z.object({
   ref: z.string().min(1),
   args: z.record(z.unknown()).default({}),
   page_cursor: z.string().optional(),
-  detail: z.boolean().optional().describe("When true, preserves ALL fields and extends text truncation to 1500 chars. Default (false) strips metadata fields and truncates text to 500 chars. Use true when output seems incomplete or you need full data."),
+  detail: z.boolean().optional().describe("When true, preserves ALL fields and returns text in full (no truncation — only the overall token budget applies). Default (false) strips metadata fields, truncates text to 500 chars, and limits arrays to 5 items. Use true when reading documents, long messages, or when default output seems incomplete."),
 });
 
 export type CallParams = z.infer<typeof CallParamsSchema>;

@@ -204,11 +204,13 @@ export class OutputShaper {
   }
 
   private truncateValue(value: unknown, detail: boolean): unknown {
-    const limit = detail ? this.maxTextLength * 3 : this.maxTextLength;
-    if (typeof value === "string" && value.length > limit) {
-      return value.slice(0, limit) + "…";
+    if (detail) {
+      return value;
     }
-    if (Array.isArray(value) && !detail) {
+    if (typeof value === "string" && value.length > this.maxTextLength) {
+      return value.slice(0, this.maxTextLength) + "…";
+    }
+    if (Array.isArray(value)) {
       return value.slice(0, 5);
     }
     return value;
