@@ -8,6 +8,14 @@
   "bin": {
     "mcp-proxy": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "src",
+    "install.sh",
+    "server.json",
+    "tsconfig.json",
+    "config.example.json"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
