@@ -20,7 +20,13 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "echo 'No tests configured'",
-    "test:cov": "echo 'No tests configured'"
+    "test:cov": "echo 'No tests configured'",
+    "audit": "pnpm audit --audit-level=moderate"
+  },
+  "pnpm": {
+    "overrides": {
+      "hono": ">=4.12.25"
+    }
   },
   "keywords": [
     "mcp",
