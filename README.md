@@ -408,6 +408,21 @@ The proxy binds to **`127.0.0.1` only** for security — it's not accessible fro
 
 ## Changelog
 
+### v1.21.2
+- Fix incomplete v1.21.1 patch: the `hono` pnpm override (`>=4.12.25`) still resolved to a vulnerable 4.12.x release; tightened to `>=4.12.34`
+- Add pnpm overrides for `@hono/node-server >=1.19.15`, `fast-uri >=3.1.5`, `ip-address >=10.3.1`, `body-parser >=2.3.0` — all transitive via `@modelcontextprotocol/sdk`, resolves 3 high and 6 medium/low CVEs (DoS, ReDoS, SSRF-adjacent parsing bugs)
+- Bump `@modelcontextprotocol/sdk` from `^1.26.0` to `^1.30.0`
+- Verified clean against `pnpm audit` and OSV.dev for all resolved dependency versions
+
+### v1.21.1
+- Attempted hono dependency patch (`pnpm override: hono >=4.12.25`) — override was too loose and did not actually clear the vulnerable range; fully resolved in v1.21.2 above
+
+### v1.21.0
+- `detail=true` no longer truncates text fields in tool output
+
+### v1.20.0
+- Per-agent lane isolation: URL routing at `/mcp/{agentId}`, filtered tool registry views, `MCP_PROXY_AGENTS` config
+
 ### v1.19.0
 - Add Prometheus `/metrics` endpoint on the dashboard port (9100 by default)
 - Exposes: `mcp_proxy_uptime_seconds`, `mcp_proxy_registered_tools`, `mcp_proxy_upstream_up`, `mcp_proxy_upstream_tools`, `mcp_proxy_calls_total`, `mcp_proxy_call_duration_ms_total`, `mcp_proxy_output_bytes_total`
