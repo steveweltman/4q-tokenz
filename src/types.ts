@@ -18,7 +18,7 @@ export const UpstreamServerConfigSchema = z.object({
   url: z.string().optional(),
   auth: UpstreamAuthSchema.optional(),
 
-  env: z.record(z.string()).default({}),
+  env: z.record(z.string(), z.string()).default({}),
 });
 
 export type UpstreamServerConfig = z.infer<typeof UpstreamServerConfigSchema>;
@@ -31,7 +31,7 @@ export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
 export const ProxyConfigSchema = z.object({
   upstreams: z.array(UpstreamServerConfigSchema).min(1),
-  agents: z.record(AgentConfigSchema).optional(),
+  agents: z.record(z.string(), AgentConfigSchema).optional(),
   searchLimit: z.number().min(1).max(20).default(5),
   callItemLimit: z.number().min(1).max(100).default(20),
   maxTextLength: z.number().min(50).max(5000).default(500),
@@ -88,7 +88,7 @@ export const SchemaParamsSchema = z.object({
 
 export const CallParamsSchema = z.object({
   ref: z.string().min(1),
-  args: z.record(z.unknown()).default({}),
+  args: z.record(z.string(), z.unknown()).default({}),
   page_cursor: z.string().optional(),
   detail: z.boolean().optional().describe("When true, preserves ALL fields and returns text in full (no truncation — only the overall token budget applies). Default (false) strips metadata fields, truncates text to 500 chars, and limits arrays to 5 items. Use true when reading documents, long messages, or when default output seems incomplete."),
 });

@@ -1,7 +1,7 @@
 {
   "name": "4q-tokenz",
   "mcpName": "io.github.steveweltman/4q-tokenz",
-  "version": "1.21.2",
+  "version": "1.22.0",
   "description": "MCP Proxy Gateway - Intelligent proxy that reduces token usage by exposing only mcp_search, mcp_call, and mcp_schema",
   "main": "dist/index.js",
   "type": "module",
@@ -25,11 +25,12 @@
   },
   "pnpm": {
     "overrides": {
-      "hono": ">=4.12.34",
+      "hono": ">=4.13.5",
       "@hono/node-server": ">=1.19.15",
-      "fast-uri": ">=3.1.5",
-      "ip-address": ">=10.3.1",
-      "body-parser": ">=2.3.0"
+      "fast-uri": ">=4.1.4",
+      "ip-address": ">=10.5.1",
+      "body-parser": ">=2.3.0",
+      "qs": ">=6.16.0"
     }
   },
   "keywords": [
@@ -49,11 +50,11 @@
     "url": "https://github.com/steveweltman/4q-tokenz.git"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "zod": "^3.22.4"
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
-    "typescript": "^6.0.3"
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2"
   }
 }

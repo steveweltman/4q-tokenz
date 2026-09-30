@@ -408,6 +408,13 @@ The proxy binds to **`127.0.0.1` only** for security — it's not accessible fro
 
 ## Changelog
 
+### v1.22.0
+- Major dependency upgrades: `zod` 3.25 → 4.6, `typescript` 6.0 → 7.0, `@types/node` 25 → 26
+- zod 4 migration: `z.record` calls now pass an explicit key schema (`src/types.ts`)
+- Bump `@modelcontextprotocol/sdk` from `^1.30.0` to `^1.31.0`
+- Tighten pnpm overrides: `hono >=4.13.5`, `fast-uri >=4.1.4`, `ip-address >=10.5.1`; add `qs >=6.16.0` — clears 2 high and 7 moderate advisories (all transitive via the MCP SDK)
+- Verified clean against `pnpm audit`
+
 ### v1.21.2
 - Fix incomplete v1.21.1 patch: the `hono` pnpm override (`>=4.12.25`) still resolved to a vulnerable 4.12.x release; tightened to `>=4.12.34`
 - Add pnpm overrides for `@hono/node-server >=1.19.15`, `fast-uri >=3.1.5`, `ip-address >=10.3.1`, `body-parser >=2.3.0` — all transitive via `@modelcontextprotocol/sdk`, resolves 3 high and 6 medium/low CVEs (DoS, ReDoS, SSRF-adjacent parsing bugs)
