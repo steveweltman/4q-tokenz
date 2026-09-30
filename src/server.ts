@@ -1,3 +1,4 @@
+import { isLoopbackRequest } from "./host-guard.js";
 import { createServer, type Server as HttpServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { readFileSync, existsSync } from "node:fs";
@@ -636,6 +637,11 @@ export class McpProxyServer {
   startHttpTransport(port: number): void {
     this.httpServer = createServer(async (req, res) => {
       try {
+        if (!isLoopbackRequest(req)) {
+          res.writeHead(403);
+          res.end("Forbidden");
+          return;
+        }
         const url = new URL(req.url || "/", `http://127.0.0.1:${port}`);
         const parts = url.pathname.split("/").filter(Boolean);
 

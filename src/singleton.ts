@@ -10,7 +10,8 @@ export interface LockInfo {
 const LOCK_FILENAME = "mcp-proxy.lock";
 
 function getLockPath(): string {
-  const dir = process.env.MCP_PROXY_LOCK_DIR || tmpdir();
+  // Prefer the per-user runtime dir so other local users cannot pre-create the lock.
+  const dir = process.env.MCP_PROXY_LOCK_DIR || process.env.XDG_RUNTIME_DIR || tmpdir();
   return join(dir, LOCK_FILENAME);
 }
 
@@ -27,7 +28,7 @@ export function tryAcquireLock(port: number): boolean {
   const lockPath = getLockPath();
 
   try {
-    const fd = openSync(lockPath, "wx");
+    const fd = openSync(lockPath, "wx", 0o600);
     try {
       const info: LockInfo = { pid: process.pid, port };
       writeSync(fd, JSON.stringify(info));

@@ -1,3 +1,4 @@
+import { isLoopbackRequest } from "./host-guard.js";
 import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -31,8 +32,13 @@ export class Dashboard {
 
   start(): void {
     this.server = createServer((req, res) => {
+      if (!isLoopbackRequest(req)) {
+        res.writeHead(403);
+        res.end("Forbidden");
+        return;
+      }
       if (req.url === "/api/status") {
-        res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(this.getData()));
         return;
       }
@@ -134,7 +140,8 @@ export class Dashboard {
           description: t.description,
         })),
       })),
-      recentLogs: this.logger.getEntries(30),
+      // Tool-call args can contain private data; the dashboard never displays them.
+      recentLogs: this.logger.getEntries(30).map(({ args: _args, ...safe }) => safe),
     };
   }
 

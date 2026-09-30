@@ -408,6 +408,13 @@ The proxy binds to **`127.0.0.1` only** for security — it's not accessible fro
 
 ## Changelog
 
+### v1.22.1
+Security hardening from the pre-release assessment (OWASP Top 10 2025, OSV.dev, GCVE):
+- Dashboard: removed `Access-Control-Allow-Origin: *` from `/api/status`, and stopped returning tool-call `args` in the audit log data — previously any website could read recent call arguments from `127.0.0.1:9100`
+- New `src/host-guard.ts`: `/mcp` and the dashboard reject requests whose `Host` or `Origin` is not loopback (403), blocking DNS-rebinding and cross-site browser access
+- Singleton lock file now lives in `$XDG_RUNTIME_DIR` when set (falls back to the temp dir) and is created with mode 0600
+- OSV.dev: 0 advisories across all 93 installed packages; `pnpm audit` clean
+
 ### v1.22.0
 - Major dependency upgrades: `zod` 3.25 → 4.6, `typescript` 6.0 → 7.0, `@types/node` 25 → 26
 - zod 4 migration: `z.record` calls now pass an explicit key schema (`src/types.ts`)
