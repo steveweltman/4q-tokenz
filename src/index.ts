@@ -8,6 +8,7 @@ import {
   releaseLock,
   isProcessAlive,
   cleanStaleLock,
+  isPortInUse,
 } from "./singleton.js";
 
 const DEFAULT_SINGLETON_PORT = 9200;
@@ -51,7 +52,15 @@ try {
   const port = getSingletonPort();
   const acquired = tryAcquireLock(port);
 
-  if (acquired) {
+  if (acquired && (await isPortInUse(port))) {
+    // We won a lock the live primary does not know about (e.g. different lock dir),
+    // but the port is served. Do not fight for it: release and bridge instead.
+    console.error(`[singleton] Port ${port} already served; releasing lock and running as BRIDGE`);
+    releaseLock();
+    const bridge = new BridgeServer(port);
+    bridge.setupGracefulShutdown();
+    await bridge.start();
+  } else if (acquired) {
     await startAsPrimary(port);
   } else {
     const lock = readLock();

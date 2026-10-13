@@ -1,6 +1,7 @@
 import { openSync, closeSync, writeSync, readFileSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { connect } from "node:net";
 
 export interface LockInfo {
   pid: number;
@@ -11,8 +12,30 @@ const LOCK_FILENAME = "mcp-proxy.lock";
 
 function getLockPath(): string {
   // Prefer the per-user runtime dir so other local users cannot pre-create the lock.
-  const dir = process.env.MCP_PROXY_LOCK_DIR || process.env.XDG_RUNTIME_DIR || tmpdir();
+  const dir = process.env.MCP_PROXY_LOCK_DIR || process.env.XDG_RUNTIME_DIR || userRuntimeDir() || tmpdir();
   return join(dir, LOCK_FILENAME);
+}
+
+// Hosts such as the OpenClaw gateway spawn us with a minimal env that lacks
+// XDG_RUNTIME_DIR; derive the standard per-user dir so every instance agrees on the lock.
+function userRuntimeDir(): string | null {
+  if (typeof process.getuid !== "function") return null;
+  const dir = `/run/user/${process.getuid()}`;
+  return existsSync(dir) ? dir : null;
+}
+
+/** True if something is already accepting TCP connections on the loopback port. */
+export function isPortInUse(port: number, timeoutMs = 1000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ port, host: "127.0.0.1" });
+    const done = (inUse: boolean): void => {
+      socket.destroy();
+      resolve(inUse);
+    };
+    socket.setTimeout(timeoutMs, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
 }
 
 export function isProcessAlive(pid: number): boolean {
