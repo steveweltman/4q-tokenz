@@ -19,7 +19,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "echo 'No tests configured'",
+    "test": "node --test test/*.test.mjs",
     "test:cov": "echo 'No tests configured'",
     "audit": "pnpm audit --audit-level=moderate"
   },
