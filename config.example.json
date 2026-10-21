@@ -4,7 +4,9 @@
       "name": "my-google-workspace",
       "transport": "stdio",
       "command": "npx",
-      "args": ["@antidrift/mcp-google"],
+      "args": [
+        "@antidrift/mcp-google"
+      ],
       "env": {
         "GOOGLE_TOKEN_FILE": "token.json",
         "GOOGLE_CONNECTORS": "gmail,calendar,drive,docs,sheets"
@@ -14,7 +16,9 @@
       "name": "my-custom-api",
       "transport": "stdio",
       "command": "node",
-      "args": ["/path/to/your/mcp-server.mjs"],
+      "args": [
+        "/path/to/your/mcp-server.mjs"
+      ],
       "env": {
         "API_KEY": "your-key-here"
       }
@@ -32,5 +36,20 @@
   "callItemLimit": 20,
   "maxTextLength": 500,
   "maxOutputTokens": 8000,
-  "idleTimeoutMs": 300000
+  "idleTimeoutMs": 300000,
+  "agents": {
+    "agent-a": {
+      "allow": [
+        "my-google-workspace"
+      ],
+      "deny": [
+        "my-google-workspace.drive_share"
+      ]
+    },
+    "agent-b": {
+      "allow": [
+        "my-custom-api"
+      ]
+    }
+  }
 }

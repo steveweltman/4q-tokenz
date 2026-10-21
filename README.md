@@ -260,6 +260,86 @@ export MCP_PROXY_MAX_OUTPUT_TOKENS=10000
 export MCP_PROXY_IDLE_TIMEOUT_MS=600000
 ```
 
+## Multi-Agent Lanes (Per-Agent Isolation)
+
+When several agents share one proxy, each agent should only be able to see and call its own tools. 4Q-Tokenz does this with **lanes**. A lane is a named view of the tool registry that is served at its own URL, `/mcp/<agentId>`. An agent connected to its lane cannot discover or call tools from any other lane, even if it knows the ref.
+
+```
+agent hope    -> entry "tokens-hope"   -> /mcp/hope    -> google-hope, hope-memory
+agent clark   -> entry "tokens-clark"  -> /mcp/clark   -> google-clark, clark-memory
+(no lane)     -> /mcp                  -> refused (HTTP 403)
+```
+
+### Defining lanes
+
+Add an `agents` block next to `upstreams` in `~/.config/4q-tokens/config.json` (or set `MCP_PROXY_AGENTS` as JSON). Each lane lists the upstream **providers** it may use and, optionally, individual tools to **deny**:
+
+```json
+{
+  "upstreams": [ ... ],
+  "agents": {
+    "hope": {
+      "allow": ["google-hope", "hope-memory"],
+      "deny": ["google-hope.drive_share", "google-hope.share_doc"]
+    },
+    "clark": { "allow": ["google-clark", "clark-memory"] }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `allow` | Upstream provider names this lane may use (required, at least one) |
+| `deny` | Optional. `provider.tool` or `*.tool` entries removed from the lane after `allow` is applied. Deny always wins. A deny entry that matches no tool logs a warning at startup, so typos do not fail open silently |
+
+Agent ids must match `^[a-z0-9_][a-z0-9_-]{0,63}$`. The plain array form (`"hope": ["google-hope"]`) is still accepted and means allow-only.
+
+### Fail-closed behavior
+
+- The unscoped route `/mcp` is **refused with 403**. A client that is not bound to a lane never sees the whole tool pool. For local development only, set `MCP_PROXY_ALLOW_UNSCOPED=1` to re-enable it.
+- An unknown lane (`/mcp/nobody`) returns 404.
+- A stdio instance that would become the primary (and so serve the whole pool to one client) refuses to start unless `MCP_PROXY_ALLOW_UNSCOPED=1`. Run the proxy as a service instead (see Singleton and Bridge Mode).
+- A bridge refuses to start without a valid `MCP_PROXY_AGENT`.
+
+### Singleton and Bridge Mode
+
+One **primary** instance owns the upstream connections and listens on `MCP_PROXY_SINGLETON_PORT` (default 9200). Run it as a service with `MCP_PROXY_SERVICE_MODE=1` (HTTP only, no stdio). Any additional instance launched as a stdio MCP server detects the live primary through the lock file and becomes a **bridge**. A bridge forwards the client's stdio traffic to the primary on its own lane:
+
+```bash
+MCP_PROXY_AGENT=hope node dist/index.js    # bridge: forwards to http://127.0.0.1:9200/mcp/hope
+```
+
+The lock file lives in `MCP_PROXY_LOCK_DIR`, else `$XDG_RUNTIME_DIR`, else `/run/user/<uid>`, else the temp dir. Hosts that launch the proxy with a minimal environment (for example the OpenClaw gateway) do not set `XDG_RUNTIME_DIR`, which is why the `/run/user/<uid>` fallback exists. If an instance wins a lock but finds the port already served, it releases the lock and bridges instead of crashing.
+
+### Wiring agents in OpenClaw
+
+OpenClaw has no per-agent MCP setting and does not tell a stdio server which agent launched it. Isolation therefore needs two layers:
+
+1. **One MCP server entry per agent**, each passing its own lane through the environment. Use names that start with a letter, because OpenClaw exposes MCP tools as `<serverName>__<tool>`:
+
+```json
+"mcp": {
+  "servers": {
+    "tokens-hope":  { "command": "/path/to/start-4q-tokens.sh", "env": { "MCP_PROXY_AGENT": "hope" } },
+    "tokens-clark": { "command": "/path/to/start-4q-tokens.sh", "env": { "MCP_PROXY_AGENT": "clark" } }
+  }
+}
+```
+
+2. **Each agent denies the other agents' entries** using glob patterns in its tool policy, so it does not see them at all (deny always wins in OpenClaw's tool policy):
+
+```json
+"agents": { "entries": { "hope": { "tools": { "deny": ["tokens-clark__*"] } } } }
+```
+
+The proxy lane is the enforcing boundary: whatever an agent does, a bridge bound to `hope` can only reach `/mcp/hope`. The OpenClaw deny list is defense in depth that keeps one agent from being handed another agent's entry.
+
+### Verifying isolation
+
+- Proxy log: every session is logged with its lane, for example `HTTP session created: ... [hope]`. There should be no `[open]` sessions and no `Refused unscoped` lines in normal operation.
+- From each agent, run `mcp_search` and confirm only that lane's providers appear.
+- From an agent, call a ref from another lane. It must return `Tool not found`.
+
 ## Running
 
 ### Standalone (Stdio Transport)
@@ -337,15 +417,17 @@ scrape_configs:
 
 ### HTTP Server (Port 9200)
 
-The proxy always starts an HTTP transport on port 9200 by default. Set `MCP_PROXY_SINGLETON_PORT` to use a different port. This allows multiple clients to connect to a single proxy instance.
+The proxy always starts an HTTP transport on port 9200 by default. Set `MCP_PROXY_SINGLETON_PORT` to use a different port. This allows multiple clients to connect to a single proxy instance. Clients connect to a lane at `/mcp/<agentId>` (see Multi-Agent Lanes). The unscoped `/mcp` route is refused unless `MCP_PROXY_ALLOW_UNSCOPED=1` is set.
 
 ```bash
 export MCP_PROXY_SINGLETON_PORT=9200
+export MCP_PROXY_SERVICE_MODE=1
 node dist/index.js &
 
-# From another process:
-curl -X POST http://127.0.0.1:9200/mcp -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "method": "tools/call", "params": {...}}'
+# From another process, on a lane:
+curl -X POST http://127.0.0.1:9200/mcp/hope -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "curl", "version": "1"}}}'
 ```
 
 ## Troubleshooting
@@ -401,12 +483,32 @@ The proxy binds to **`127.0.0.1` only** for security — it's not accessible fro
   ssh -L 9200:127.0.0.1:9200 user@remote-host
   ```
 - **Systemd service**: Access is local by default; no firewall rule needed
+- **Tenant isolation**: see Multi-Agent Lanes. Lanes are enforced by the proxy, not by the agents, and the unscoped route fails closed
 
 ## Known Limitations
 
-- **No automated tests** — this is production-quality code used daily, but test suite is not included
+- **Tests are focused, not exhaustive**: `pnpm test` runs regression tests for the singleton lock, bridge startup, lane isolation and deny lists (Node's built-in test runner, no extra dependencies). Upstream connector behavior is not covered
+- **Lane enforcement depends on how clients connect**: a bridge or client is only isolated if it is bound to a lane. The proxy refuses unbound clients, but it cannot stop a client you deliberately point at another agent's lane
 
 ## Changelog
+
+### Unreleased (next: v1.23.0)
+Per-agent isolation is now enforced rather than optional:
+- **Breaking:** the unscoped `/mcp` route is refused with 403 unless `MCP_PROXY_ALLOW_UNSCOPED=1`. Clients must use `/mcp/<agentId>`
+- **Breaking:** a bridge reads `MCP_PROXY_AGENT`, connects to its lane, and refuses to start without a valid agent id. A non-service stdio primary refuses to start unless `MCP_PROXY_ALLOW_UNSCOPED=1`
+- New per-lane `deny` list (`provider.tool` or `*.tool`) in the `agents` config, with a startup warning for entries that match no tool
+- README: new Multi-Agent Lanes section covering lane config, fail-closed behavior, singleton and bridge mode, and OpenClaw wiring
+- Tests added for lane isolation, fail-closed paths and deny semantics
+
+### v1.22.3
+- `@modelcontextprotocol/sdk` 1.31.0 to 1.32.1, clearing all `pnpm audit --prod` findings (including `proxy-addr` via express)
+
+### v1.22.2
+- Version bump so the build with the singleton lock fix is distinguishable
+
+### Singleton lock directory fix (between v1.22.1 and v1.22.2)
+- Fixed: a proxy launched with a minimal environment (no `XDG_RUNTIME_DIR`, for example by the OpenClaw gateway) looked for its lock in the temp dir, did not find the running primary, tried to become a second primary and crashed with `EADDRINUSE`, which the client saw as `MCP error -32000: Connection closed`. The lock directory now falls back to `/run/user/<uid>`, and an instance that wins a lock but finds the port served bridges instead of crashing
+- Added regression tests (`pnpm test`)
 
 ### v1.22.1
 Security hardening from the pre-release assessment (OWASP Top 10 2025, OSV.dev, GCVE):
