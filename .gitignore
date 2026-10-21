@@ -4,3 +4,4 @@ coverage/
 *.tsbuildinfo
 *.txt
 scrnshot/
+dist-next/

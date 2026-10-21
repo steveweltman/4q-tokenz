@@ -28,14 +28,23 @@ export class ToolRegistry {
     return this.tools.size;
   }
 
-  forProviders(allowed: Set<string>): ToolRegistry {
+  /** Lane view: tools from allowed providers, minus any "provider.tool" / "*.tool" deny entries. */
+  forProviders(allowed: Set<string>, deny: readonly string[] = []): ToolRegistry {
+    const denied = new Set(deny);
     const view = new ToolRegistry();
     for (const entry of this.tools.values()) {
-      if (allowed.has(entry.provider)) {
-        view.register(entry);
-      }
+      if (!allowed.has(entry.provider)) continue;
+      if (denied.has(`${entry.provider}.${entry.originalName}`) || denied.has(`*.${entry.originalName}`)) continue;
+      view.register(entry);
     }
     return view;
+  }
+
+  /** Deny entries that match no registered tool (typos would otherwise fail open silently). */
+  unmatchedDenies(deny: readonly string[]): string[] {
+    return deny.filter(
+      (d) => !this.getAll().some((e) => d === `${e.provider}.${e.originalName}` || d === `*.${e.originalName}`),
+    );
   }
 
   async ingestUpstreamTool(

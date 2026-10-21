@@ -23,8 +23,15 @@ export const UpstreamServerConfigSchema = z.object({
 
 export type UpstreamServerConfig = z.infer<typeof UpstreamServerConfigSchema>;
 
+// Agent ids appear in URL paths and env vars, so keep them to a safe, lane-name-shaped charset.
+export const AGENT_ID_PATTERN = /^[a-z0-9_][a-z0-9_-]{0,63}$/;
+
+// "provider.tool" or "*.tool"; evaluated after the provider allow-list, deny always wins.
+const ToolDenySchema = z.string().regex(/^([A-Za-z0-9_-]+|\*)\.[A-Za-z0-9_.-]+$/, 'deny entries look like "provider.tool" or "*.tool"');
+
 export const AgentConfigSchema = z.object({
   allow: z.array(z.string()).min(1),
+  deny: z.array(ToolDenySchema).optional(),
 });
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;

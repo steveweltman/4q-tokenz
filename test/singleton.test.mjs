@@ -4,12 +4,9 @@ import { createServer } from "node:net";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir, freePort } from "./helpers.mjs";
-import {
-  tryAcquireLock,
-  readLock,
-  releaseLock,
-  isPortInUse,
-} from "../dist/singleton.js";
+import { DIST } from "./helpers.mjs";
+
+const { tryAcquireLock, readLock, releaseLock, isPortInUse } = await import(join(DIST, "singleton.js"));
 
 function withEnv(vars, fn) {
   const saved = {};

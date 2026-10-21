@@ -21,9 +21,9 @@ export class BridgeServer {
   private readonly primaryUrl: string;
   private readonly primaryPort: number;
 
-  constructor(port: number) {
+  constructor(port: number, agentId?: string) {
     this.primaryPort = port;
-    this.primaryUrl = `http://127.0.0.1:${port}/mcp`;
+    this.primaryUrl = `http://127.0.0.1:${port}/mcp${agentId ? `/${agentId}` : ""}`;
     this.server = new McpServer({
       name: "mcp-proxy-bridge",
       version: "1.0.0",

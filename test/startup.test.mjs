@@ -15,7 +15,7 @@ async function startPrimary() {
   const port = await freePort();
   const dashboardPort = await freePort();
   const lockDir = tempDir("lock");
-  const primary = startProxy({ port, dashboardPort, lockDir });
+  const primary = startProxy({ port, dashboardPort, lockDir, service: true });
   await waitFor(() => primary.stderr.includes("HTTP transport listening"), {
     label: "primary listening",
   });
@@ -34,7 +34,7 @@ test("free port: instance becomes the primary", async () => {
 
 test("same lock dir: second instance bridges and completes the MCP handshake", async () => {
   const { primary, port, dashboardPort, lockDir } = await startPrimary();
-  const second = startProxy({ port, dashboardPort, lockDir });
+  const second = startProxy({ port, dashboardPort, lockDir, agent: "alpha" });
   try {
     const res = await initializeOverStdio(second);
     assert.equal(res.result.serverInfo.name, "mcp-proxy-bridge");
@@ -48,7 +48,7 @@ test("same lock dir: second instance bridges and completes the MCP handshake", a
 test("regression: different lock dir (gateway-style env) bridges instead of crashing with EADDRINUSE", async () => {
   const { primary, port, dashboardPort } = await startPrimary();
   const otherLockDir = tempDir("otherlock");
-  const second = startProxy({ port, dashboardPort, lockDir: otherLockDir });
+  const second = startProxy({ port, dashboardPort, lockDir: otherLockDir, agent: "alpha" });
   try {
     const res = await initializeOverStdio(second);
     assert.equal(res.result.serverInfo.name, "mcp-proxy-bridge");

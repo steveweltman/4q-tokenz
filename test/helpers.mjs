@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const ROOT = join(here, "..");
-export const ENTRY = join(ROOT, "dist", "index.js");
+export const DIST = join(ROOT, process.env.DIST_DIR || "dist");
+export const ENTRY = join(DIST, "index.js");
 const STUB = join(here, "fixtures", "stub-upstream.mjs");
 
 export function tempDir(prefix) {
@@ -29,13 +30,22 @@ export function freePort() {
  * Spawn dist/index.js with a stripped env (no XDG_RUNTIME_DIR, temp HOME),
  * the way the OpenClaw gateway launches it. Never touches real ports or config.
  */
-export function startProxy({ port, dashboardPort, lockDir }) {
+export const LANES = {
+  alpha: { allow: ["stub"] },
+  beta: { allow: ["stub"], deny: ["stub.ping"] },
+};
+
+export function startProxy({ port, dashboardPort, lockDir, agent, service = false, extraEnv = {} }) {
   const home = tempDir("home");
   const env = {
     PATH: process.env.PATH,
     HOME: home,
     MCP_PROXY_SINGLETON_PORT: String(port),
     MCP_PROXY_DASHBOARD_PORT: String(dashboardPort),
+    MCP_PROXY_AGENTS: JSON.stringify(LANES),
+    ...(service ? { MCP_PROXY_SERVICE_MODE: "1" } : {}),
+    ...(agent ? { MCP_PROXY_AGENT: agent } : {}),
+    ...extraEnv,
     MCP_PROXY_UPSTREAMS: JSON.stringify([
       { name: "stub", transport: "stdio", command: process.execPath, args: [STUB] },
     ]),

@@ -29,6 +29,11 @@ import {
   UpstreamServerConfigSchema,
 } from "./types.js";
 
+/** Escape hatch for local development only; production lanes must be explicit. */
+export function allowUnscopedRoute(): boolean {
+  return process.env.MCP_PROXY_ALLOW_UNSCOPED === "1";
+}
+
 export class McpProxyServer {
   private readonly server: McpServer;
   private readonly registry: ToolRegistry;
@@ -224,11 +229,16 @@ export class McpProxyServer {
     if (!this.config.agents) return;
     for (const [agentId, agentConfig] of Object.entries(this.config.agents)) {
       const allowed = new Set(agentConfig.allow);
-      const filteredRegistry = this.registry.forProviders(allowed);
+      const deny = agentConfig.deny ?? [];
+      const filteredRegistry = this.registry.forProviders(allowed, deny);
+      for (const stale of this.registry.unmatchedDenies(deny)) {
+        console.error(`[proxy] WARNING lane [${agentId}]: deny entry "${stale}" matches no tool`);
+      }
       const filteredSearch = new HybridSearch(filteredRegistry, this.sessionMemory);
       this.agentViews.set(agentId, { registry: filteredRegistry, search: filteredSearch });
       console.error(
-        `[proxy] Agent lane [${agentId}]: ${filteredRegistry.size} tools (${agentConfig.allow.join(', ')})`
+        `[proxy] Agent lane [${agentId}]: ${filteredRegistry.size} tools (${agentConfig.allow.join(', ')})` +
+          (deny.length ? `, ${deny.length} denied` : "")
       );
     }
   }
@@ -659,6 +669,14 @@ export class McpProxyServer {
 
           if (!transport && req.method === "POST") {
             await this.upstreamsReady;
+
+            if (agentId === null && !allowUnscopedRoute()) {
+              // Fail closed: an agent without a lane must never see the whole tool pool.
+              console.error("[proxy] Refused unscoped /mcp session (use /mcp/<agent>)");
+              res.writeHead(403, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "Unscoped route disabled. Connect to /mcp/<agent>." }));
+              return;
+            }
 
             if (agentId !== null) {
               if (!this.agentViews.has(agentId)) {
