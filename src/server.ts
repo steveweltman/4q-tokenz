@@ -1,6 +1,7 @@
 import { isLoopbackRequest } from "./host-guard.js";
 import { createServer, type Server as HttpServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { extractBearer, verifyLaneToken } from "./lane-auth.js";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -34,6 +35,8 @@ export function allowUnscopedRoute(): boolean {
   return process.env.MCP_PROXY_ALLOW_UNSCOPED === "1";
 }
 
+const MAX_SESSIONS_PER_LANE = 128;
+
 export class McpProxyServer {
   private readonly server: McpServer;
   private readonly registry: ToolRegistry;
@@ -49,6 +52,8 @@ export class McpProxyServer {
   private agentViews = new Map<string, { registry: ToolRegistry; search: HybridSearch }>();
   private httpServer: HttpServer | null = null;
   private httpTransports = new Map<string, StreamableHTTPServerTransport>();
+  // Lane each HTTP session was opened on (null for the unscoped escape hatch).
+  private httpSessionLane = new Map<string, string | null>();
 
   constructor(config: ProxyConfig) {
     this.config = config;
@@ -77,6 +82,7 @@ export class McpProxyServer {
   static fromEnvironment(): McpProxyServer {
     let upstreamsRaw = process.env.MCP_PROXY_UPSTREAMS;
     let agentsRaw = process.env.MCP_PROXY_AGENTS;
+    let requireLaneTokens = false;
     let configSource = "environment";
 
     if (!upstreamsRaw) {
@@ -93,6 +99,9 @@ export class McpProxyServer {
           if (fileConfig.agents && !agentsRaw) {
             agentsRaw = JSON.stringify(fileConfig.agents);
           }
+          if (fileConfig.requireLaneTokens === true) {
+            requireLaneTokens = true;
+          }
         } catch (error) {
           console.error(
             `[proxy] Failed to load config file ${configPath}: ${error instanceof Error ? error.message : error}`
@@ -107,6 +116,8 @@ export class McpProxyServer {
         "MISSING_CONFIG",
       );
     }
+
+    if (process.env.MCP_PROXY_REQUIRE_LANE_TOKENS === "1") requireLaneTokens = true;
 
     const expanded = upstreamsRaw.replace(
       /\$\{(\w+)\}/g,
@@ -147,6 +158,7 @@ export class McpProxyServer {
     const config = ProxyConfigSchema.parse({
       upstreams,
       agents,
+      requireLaneTokens,
       searchLimit: parseInt(process.env.MCP_PROXY_SEARCH_LIMIT || "3", 10),
       callItemLimit: parseInt(
         process.env.MCP_PROXY_CALL_ITEM_LIMIT || "20",
@@ -173,6 +185,7 @@ export class McpProxyServer {
     server: McpServer,
     registry: ToolRegistry = this.registry,
     search: HybridSearch = this.search,
+    agent?: string,
   ): void {
     server.registerTool(
       "mcp_search",
@@ -185,7 +198,7 @@ export class McpProxyServer {
           limit: SearchParamsSchema.shape.limit,
         },
       },
-      async (params) => this.handleSearch(params as SearchParams, search),
+      async (params) => this.handleSearch(params as SearchParams, search, agent),
     );
 
     server.registerTool(
@@ -208,7 +221,7 @@ export class McpProxyServer {
           detail: CallParamsSchema.shape.detail,
         },
       },
-      async (params) => this.handleCall(params as CallParams, registry),
+      async (params) => this.handleCall(params as CallParams, registry, agent),
     );
 
     server.registerTool(
@@ -225,6 +238,26 @@ export class McpProxyServer {
     );
   }
 
+  /** True if the request may use this lane: no token configured and none required, or a valid bearer. */
+  private isLaneAuthorized(agentId: string, authorization: string | string[] | undefined): boolean {
+    const lane = this.config.agents?.[agentId];
+    if (!lane) return true; // unknown lanes get the usual 404 further on
+    if (!lane.tokenHash) return !this.config.requireLaneTokens;
+    return verifyLaneToken(extractBearer(authorization), lane.tokenHash);
+  }
+
+  /** Keeps a lane to a bounded number of sessions by closing the oldest. */
+  private evictOldSessions(agentId: string | null): void {
+    const ids = [...this.httpSessionLane.entries()].filter(([, lane]) => lane === agentId).map(([id]) => id);
+    while (ids.length > MAX_SESSIONS_PER_LANE) {
+      const oldest = ids.shift()!;
+      const transport = this.httpTransports.get(oldest);
+      this.httpTransports.delete(oldest);
+      this.httpSessionLane.delete(oldest);
+      void transport?.close().catch(() => undefined);
+    }
+  }
+
   private buildAgentViews(): void {
     if (!this.config.agents) return;
     for (const [agentId, agentConfig] of Object.entries(this.config.agents)) {
@@ -236,8 +269,11 @@ export class McpProxyServer {
       }
       const filteredSearch = new HybridSearch(filteredRegistry, this.sessionMemory);
       this.agentViews.set(agentId, { registry: filteredRegistry, search: filteredSearch });
+      if (this.config.requireLaneTokens && !agentConfig.tokenHash) {
+        console.error(`[proxy] WARNING lane [${agentId}]: requireLaneTokens is set but the lane has no tokenHash; it will refuse all requests`);
+      }
       console.error(
-        `[proxy] Agent lane [${agentId}]: ${filteredRegistry.size} tools (${agentConfig.allow.join(', ')})` +
+        `[proxy] Agent lane [${agentId}]${agentConfig.tokenHash ? " (token required)" : ""}: ${filteredRegistry.size} tools (${agentConfig.allow.join(', ')})` +
           (deny.length ? `, ${deny.length} denied` : "")
       );
     }
@@ -309,9 +345,11 @@ export class McpProxyServer {
   private async handleSearch(
     params: SearchParams,
     search: HybridSearch = this.search,
+    agent?: string,
   ): Promise<McpToolResult> {
     await this.upstreamsReady;
     const audit = this.logger.createEntry({
+      agent,
       tool: "mcp_search",
       provider: "*",
       args: params as unknown as Record<string, unknown>,
@@ -345,10 +383,11 @@ export class McpProxyServer {
   private async handleCall(
     params: CallParams,
     registry: ToolRegistry = this.registry,
+    agent?: string,
   ): Promise<McpToolResult> {
     await this.upstreamsReady;
     if (params.page_cursor) {
-      return this.handlePaginatedCall(params);
+      return this.handlePaginatedCall(params, agent);
     }
 
     const entry = registry.get(params.ref);
@@ -366,6 +405,7 @@ export class McpProxyServer {
     }
 
     const audit = this.logger.createEntry({
+      agent,
       tool: "mcp_call",
       provider: entry.provider,
       args: params.args,
@@ -450,6 +490,7 @@ export class McpProxyServer {
 
   private async handlePaginatedCall(
     params: CallParams,
+    agent?: string,
   ): Promise<McpToolResult> {
     const state = this.pagination.resolve(params.page_cursor!);
     if (!state) {
@@ -467,6 +508,7 @@ export class McpProxyServer {
     }
 
     const audit = this.logger.createEntry({
+      agent,
       tool: "mcp_call",
       provider: state.provider,
       args: state.args,
@@ -664,8 +706,23 @@ export class McpProxyServer {
         const agentId = parts[1] ?? null;
         const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
+        if (agentId !== null && !this.isLaneAuthorized(agentId, req.headers.authorization)) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Unauthorized" }));
+          return;
+        }
+
         if (req.method === "POST" || req.method === "GET" || req.method === "DELETE") {
           let transport = sessionId ? this.httpTransports.get(sessionId) : undefined;
+          // A session belongs to the lane it was opened on; never serve it on another route.
+          if (transport && sessionId && this.httpSessionLane.get(sessionId) !== agentId) {
+            transport = undefined;
+            if (req.method !== "POST") {
+              res.writeHead(404, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "No valid session" }));
+              return;
+            }
+          }
 
           if (!transport && req.method === "POST") {
             await this.upstreamsReady;
@@ -695,6 +752,8 @@ export class McpProxyServer {
               sessionIdGenerator: () => randomUUID(),
               onsessioninitialized: (id) => {
                 this.httpTransports.set(id, transport!);
+                this.httpSessionLane.set(id, agentId);
+                this.evictOldSessions(agentId);
                 const lane = agentId ? `[${agentId}]` : "[open]";
                 console.error(`[proxy] HTTP session created: ${id.slice(0, 8)}... ${lane}`);
               },
@@ -703,11 +762,12 @@ export class McpProxyServer {
             transport.onclose = () => {
               if (transport!.sessionId) {
                 this.httpTransports.delete(transport!.sessionId);
+                this.httpSessionLane.delete(transport!.sessionId);
               }
             };
 
             const sessionServer = new McpServer({ name: "mcp-proxy-gateway", version: "1.0.0" });
-            this.registerToolsOn(sessionServer, registry, search);
+            this.registerToolsOn(sessionServer, registry, search, agentId ?? undefined);
             await sessionServer.connect(transport);
           }
 
@@ -726,7 +786,7 @@ export class McpProxyServer {
         console.error(`[proxy] HTTP handler error: ${msg}`);
         if (!res.headersSent) {
           res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: msg }));
+          res.end(JSON.stringify({ error: "Internal error" }));
         }
       }
     });
@@ -746,6 +806,7 @@ export class McpProxyServer {
           await transport.close();
         }
         this.httpTransports.clear();
+        this.httpSessionLane.clear();
       }
       await this.connector.disconnectAll();
     } catch (error) {

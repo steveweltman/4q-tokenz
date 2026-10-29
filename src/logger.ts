@@ -22,7 +22,7 @@ export class AuditLogger {
       this.entries = this.entries.slice(-this.maxEntries);
     }
     console.error(
-      `[audit] ${entry.tool} via ${entry.provider} | ${entry.executionTimeMs}ms | ${entry.outputSize}b` +
+      `[audit]${entry.agent ? ` [${entry.agent}]` : ""} ${entry.tool} via ${entry.provider} | ${entry.executionTimeMs}ms | ${entry.outputSize}b` +
         (entry.error ? ` | ERROR: ${entry.error}` : "")
     );
   }
@@ -32,7 +32,7 @@ export class AuditLogger {
   }
 
   createEntry(
-    partial: Pick<AuditEntry, "tool" | "provider" | "args">
+    partial: Pick<AuditEntry, "tool" | "provider" | "args" | "agent">
   ): AuditEntry & { _start: number } {
     return {
       ...partial,

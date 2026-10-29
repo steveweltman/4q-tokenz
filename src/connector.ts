@@ -18,6 +18,22 @@ interface ConnectedUpstream {
 const MAX_LOGS = 100;
 const IDLE_CHECK_INTERVAL_MS = 60_000;
 
+// Variables every stdio upstream gets. Everything else must be listed in the
+// upstream's own "env" (values) or "inheritEnv" (names copied from the proxy).
+const BASE_ENV_NAMES = ["PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TMPDIR", "XDG_RUNTIME_DIR"];
+
+export function buildUpstreamEnv(
+  config: Pick<UpstreamServerConfig, "env" | "inheritEnv">,
+  source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const name of [...BASE_ENV_NAMES, ...config.inheritEnv]) {
+    const value = source[name];
+    if (value !== undefined) env[name] = value;
+  }
+  return { ...env, ...config.env };
+}
+
 export class McpConnectorManager {
   private readonly upstreams = new Map<string, ConnectedUpstream>();
   private readonly configs = new Map<string, UpstreamServerConfig>();
@@ -266,7 +282,7 @@ export class McpConnectorManager {
     const transport = new StdioClientTransport({
       command: config.command,
       args: config.args,
-      env: { ...process.env, ...config.env } as Record<string, string>,
+      env: buildUpstreamEnv(config),
       cwd: config.cwd || process.cwd(),
       stderr: "pipe",
     });
@@ -307,9 +323,18 @@ export class McpConnectorManager {
       );
     const baseUrl = new URL(config.url);
 
-    const token = config.auth?.apiKey
-      ? process.env[config.auth.apiKey] || config.auth.apiKey
-      : undefined;
+    // auth.apiKey names an environment variable. Fail closed if it is unset,
+    // never send the variable's name (or any other literal) as the credential.
+    let token: string | undefined;
+    if (config.auth?.apiKey) {
+      token = process.env[config.auth.apiKey];
+      if (!token) {
+        throw new ProxyError(
+          `${config.name}: environment variable ${config.auth.apiKey} is not set`,
+          "INVALID_CONFIG",
+        );
+      }
+    }
 
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;

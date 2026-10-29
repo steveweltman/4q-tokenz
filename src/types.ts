@@ -19,6 +19,8 @@ export const UpstreamServerConfigSchema = z.object({
   auth: UpstreamAuthSchema.optional(),
 
   env: z.record(z.string(), z.string()).default({}),
+  // stdio upstreams start with a minimal environment; list extra variables to pass through from the proxy.
+  inheritEnv: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).default([]),
 });
 
 export type UpstreamServerConfig = z.infer<typeof UpstreamServerConfigSchema>;
@@ -32,6 +34,8 @@ const ToolDenySchema = z.string().regex(/^([A-Za-z0-9_-]+|\*)\.[A-Za-z0-9_.-]+$/
 export const AgentConfigSchema = z.object({
   allow: z.array(z.string()).min(1),
   deny: z.array(ToolDenySchema).optional(),
+  // sha256 of the lane bearer token (see lane-auth.ts); the token itself is never configured here.
+  tokenHash: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(),
 });
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
@@ -39,6 +43,8 @@ export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 export const ProxyConfigSchema = z.object({
   upstreams: z.array(UpstreamServerConfigSchema).min(1),
   agents: z.record(z.string(), AgentConfigSchema).optional(),
+  // When true, a lane without a tokenHash refuses all requests (fail closed).
+  requireLaneTokens: z.boolean().default(false),
   searchLimit: z.number().min(1).max(20).default(5),
   callItemLimit: z.number().min(1).max(100).default(20),
   maxTextLength: z.number().min(50).max(5000).default(500),
@@ -126,6 +132,7 @@ export interface PaginationState {
 
 export interface AuditEntry {
   timestamp: string;
+  agent?: string;
   tool: string;
   provider: string;
   args: Record<string, unknown>;

@@ -29,7 +29,7 @@
       "@hono/node-server": ">=1.19.15",
       "fast-uri": ">=4.1.4",
       "ip-address": ">=10.5.1",
-      "body-parser": ">=2.3.0",
+      "body-parser": "^2.4.0",
       "qs": ">=6.16.0"
     }
   },
@@ -43,15 +43,15 @@
     "claude",
     "context-window"
   ],
-  "author": "Steve Weltman (fork of @arvoretech/mcp-proxy by Árvore Educação)",
+  "author": "Steve Weltman (fork of @arvoretech/mcp-proxy by \u00c1rvore Educa\u00e7\u00e3o)",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/steveweltman/4q-tokenz.git"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
-    "zod": "^4.6.5"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",

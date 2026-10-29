@@ -8,6 +8,7 @@ import {
   SchemaParamsSchema,
   type McpToolResult,
 } from "./types.js";
+import { readTokenFile } from "./lane-auth.js";
 import { readLock, isProcessAlive, cleanStaleLock } from "./singleton.js";
 
 const MAX_RETRIES = 3;
@@ -20,9 +21,13 @@ export class BridgeServer {
   private clientPromise: Promise<Client> | null = null;
   private readonly primaryUrl: string;
   private readonly primaryPort: number;
+  private readonly requestInit: RequestInit;
 
   constructor(port: number, agentId?: string) {
     this.primaryPort = port;
+    // MCP_PROXY_TOKEN_FILE names a file holding this lane's bearer token (the path is not a secret).
+    const tokenFile = process.env.MCP_PROXY_TOKEN_FILE;
+    this.requestInit = tokenFile ? { headers: { Authorization: `Bearer ${readTokenFile(tokenFile)}` } } : {};
     this.primaryUrl = `http://127.0.0.1:${port}/mcp${agentId ? `/${agentId}` : ""}`;
     this.server = new McpServer({
       name: "mcp-proxy-bridge",
@@ -95,7 +100,7 @@ export class BridgeServer {
           version: "1.0.0",
         });
 
-        const transport = new StreamableHTTPClientTransport(url);
+        const transport = new StreamableHTTPClientTransport(url, { requestInit: this.requestInit });
         await client.connect(transport);
 
         console.error(`[bridge] Connected to primary at ${this.primaryUrl}`);

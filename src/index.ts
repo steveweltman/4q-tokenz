@@ -35,7 +35,13 @@ async function startAsBridge(port: number): Promise<void> {
     console.error("[bridge] MCP_PROXY_AGENT is not a valid agent id; refusing to start");
     process.exit(1);
   }
-  const bridge = new BridgeServer(port, agent || undefined);
+  let bridge: BridgeServer;
+  try {
+    bridge = new BridgeServer(port, agent || undefined);
+  } catch (error) {
+    console.error(`[bridge] ${error instanceof Error ? error.message : "failed to start"}`);
+    process.exit(1);
+  }
   bridge.setupGracefulShutdown();
   await bridge.start();
 }
