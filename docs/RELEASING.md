@@ -45,14 +45,17 @@ Step B, npm approval (needs your npm login and 2FA; OIDC tokens cannot approve):
 ```bash
 npm login
 npm stage list 4q-tokenz
-npm stage view 4q-tokenz@1.23.0
+npm stage view <stage-id>
 ```
+Stage commands take the stage ID (a UUID), not name@version. Copy it from
+`npm stage list`, or from the "staged with id ..." line in the workflow log.
 Check the version, file list and that provenance points to this repo and workflow.
 Then approve, or discard:
 ```bash
-npm stage approve 4q-tokenz@1.23.0
-npm stage reject 4q-tokenz@1.23.0
+npm stage approve <stage-id>
+npm stage reject <stage-id>
 ```
+`npm stage download <stage-id>` fetches the tarball for inspection.
 Approval can also be done on the package page at npmjs.com.
 
 Step C, verify:
