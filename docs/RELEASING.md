@@ -56,6 +56,12 @@ npm stage approve <stage-id>
 npm stage reject <stage-id>
 ```
 `npm stage download <stage-id>` fetches the tarball for inspection.
+
+Then log out so the session token is revoked and removed from `~/.npmrc`:
+```bash
+npm logout
+```
+`npm login` writes a real token to `~/.npmrc`. Do not leave it there.
 Approval can also be done on the package page at npmjs.com.
 
 Step C, verify:
