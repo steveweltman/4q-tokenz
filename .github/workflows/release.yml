@@ -1,0 +1,65 @@
+# Release to npm via Trusted Publishing (OIDC). No npm token is stored anywhere.
+# The npm trusted-publisher rule is stage-only, so this job stages the release;
+# a maintainer then approves it with `npm stage approve` (see docs/RELEASING.md).
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    # Must match the environment name configured on npmjs.com.
+    # Add a required reviewer in repo Settings > Environments for a human gate.
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # OIDC token exchanged with npm; nothing else needs it
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 10
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Trusted publishing and stage publish need a current npm CLI.
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      # Tag, package.json and server.json must agree. Values go through env vars,
+      # never interpolated into the script.
+      - name: Verify versions match tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          srv=$(node -p "require('./server.json').version")
+          srvpkg=$(node -p "require('./server.json').packages[0].version")
+          echo "tag=$TAG package.json=$pkg server.json=$srv server.json package=$srvpkg"
+          test "$TAG" = "v$pkg"
+          test "$pkg" = "$srv"
+          test "$pkg" = "$srvpkg"
+
+      - name: Stage publish to npm
+        run: npm stage publish
