@@ -492,13 +492,17 @@ The proxy binds to **`127.0.0.1` only** for security — it's not accessible fro
 
 ## Changelog
 
-### Unreleased (next: v1.23.0)
+### v1.23.0
 Per-agent isolation is now enforced rather than optional:
 - **Breaking:** the unscoped `/mcp` route is refused with 403 unless `MCP_PROXY_ALLOW_UNSCOPED=1`. Clients must use `/mcp/<agentId>`
 - **Breaking:** a bridge reads `MCP_PROXY_AGENT`, connects to its lane, and refuses to start without a valid agent id. A non-service stdio primary refuses to start unless `MCP_PROXY_ALLOW_UNSCOPED=1`
 - New per-lane `deny` list (`provider.tool` or `*.tool`) in the `agents` config, with a startup warning for entries that match no tool
 - README: new Multi-Agent Lanes section covering lane config, fail-closed behavior, singleton and bridge mode, and OpenClaw wiring
 - Tests added for lane isolation, fail-closed paths and deny semantics
+- Per-lane bearer tokens: with `requireLaneTokens` set, each lane must present its own token (stored as `tokenHash` in the config); a bridge reads its token from `MCP_PROXY_TOKEN_FILE`
+- Upstream servers now start with a minimal environment instead of inheriting the proxy's
+- Audit log lines are tagged with the lane
+- Releases now publish through npm Trusted Publishing (staged, human-approved); see `docs/RELEASING.md`. No npm token is used
 
 ### v1.22.3
 - `@modelcontextprotocol/sdk` 1.31.0 to 1.32.1, clearing all `pnpm audit --prod` findings (including `proxy-addr` via express)
